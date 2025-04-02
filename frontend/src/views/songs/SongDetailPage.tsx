@@ -41,7 +41,7 @@ const SongDetailPage = () => {
       const pollInterval = setInterval(async () => {
         try {
           const refreshedSong = await songService.getSongById(id);
-          refreshSong(refreshedSong, false); // false means don't revalidate
+          refreshSong(refreshedSong, false);
 
           if (
             refreshedSong.status !== "pending" &&
@@ -219,7 +219,7 @@ const SongDetailPage = () => {
                   </h3>
                   {song.countries && song.countries.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
-                      {song.countries.map((country) => (
+                      {song.countries.map((country: string) => (
                         <span
                           key={country}
                           className="px-3 py-1.5 bg-secondary/60 text-secondary-foreground rounded-full text-sm font-medium"
