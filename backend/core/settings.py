@@ -204,11 +204,8 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-MUSIXMATCH_API_KEY = os.getenv("MUSIXMATCH_API_KEY", "832b4eaaee025e91b12c7ec4894e8eba")
-OPENAI_API_KEY = os.getenv(
-    "OPENAI_API_KEY", "sk-proj-UEJUbWF23vOZTGzSB5q6T3BlbkFJ7dJJuRl37aYdnaGh5VzZ"
-)
-
+MUSIXMATCH_API_KEY = os.getenv("MUSIXMATCH_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "250"))
 OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
