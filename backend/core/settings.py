@@ -91,6 +91,9 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"(http(s)?:\/\/)?127.0.0.1:[0-9]{4}$",
     r"(http(s)?:\/\/)?localhost:[0-9]{4}$",
 ]
+CORS_ALLOWED_ORIGINS = [
+    "https://lyricsintelliect.netlify.app",
+]
 
 ROOT_URLCONF = "core.urls"
 
