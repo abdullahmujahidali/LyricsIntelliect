@@ -25,6 +25,7 @@ export function usePolling<T>({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [stopped, setStopped] = useState(false);
+  const [isPolling, setIsPolling] = useState(enabled);
 
   const attemptCountRef = useRef(0);
   const timeoutRef = useRef<number | null>(null);
@@ -37,83 +38,102 @@ export function usePolling<T>({
   };
 
   const startPolling = useCallback(() => {
-    if (!enabled) return;
-
-    setLoading(true);
+    clearPollingTimeout();
+    setIsPolling(true);
     setStopped(false);
+    setLoading(true);
     attemptCountRef.current = 0;
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    clearPollingTimeout();
+    setStopped(true);
+    setIsPolling(false);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isPolling) {
+      console.log("Polling not enabled");
+      return;
+    }
+
+    let isMounted = true;
 
     const poll = async () => {
-      if (stopped || !enabled) return;
+      if (!isMounted || stopped) {
+        console.log("Polling stopped: component unmounted or stopped flag set");
+        return;
+      }
 
       try {
         attemptCountRef.current += 1;
-
         const result = await pollingFn();
-        setData(result);
+        if (isMounted) {
+          setData(result);
+          const shouldStop = stopCondition(result);
+          if (shouldStop) {
+            setStopped(true);
+            setLoading(false);
+            setIsPolling(false);
+            if (onSuccess) onSuccess(result);
+            return;
+          }
 
-        const shouldStop = stopCondition(result);
-
-        if (shouldStop) {
-          setStopped(true);
-          setLoading(false);
-          if (onSuccess) onSuccess(result);
-          return;
+          if (attemptCountRef.current >= maxAttempts) {
+            setStopped(true);
+            setLoading(false);
+            setIsPolling(false);
+            if (onMaxAttemptsReached) onMaxAttemptsReached();
+            return;
+          }
+          clearPollingTimeout();
+          timeoutRef.current = window.setTimeout(poll, interval);
         }
-
-        if (attemptCountRef.current >= maxAttempts) {
-          setStopped(true);
-          setLoading(false);
-          if (onMaxAttemptsReached) onMaxAttemptsReached();
-          return;
-        }
-
-        clearPollingTimeout();
-        timeoutRef.current = window.setTimeout(poll, interval);
       } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        setError(error);
-        setLoading(false);
-        setStopped(true);
-        if (onError) onError(error);
+        if (isMounted) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          setError(error);
+          setLoading(false);
+          setStopped(true);
+          setIsPolling(false);
+          if (onError) onError(error);
+        }
       }
     };
 
     poll();
 
     return () => {
+      console.log("Cleaning up polling effect");
+      isMounted = false;
       clearPollingTimeout();
-      setStopped(true);
     };
   }, [
-    enabled,
+    isPolling,
+    pollingFn,
     interval,
     maxAttempts,
-    onError,
-    onMaxAttemptsReached,
-    onSuccess,
-    pollingFn,
     stopCondition,
     stopped,
+    onSuccess,
+    onMaxAttemptsReached,
+    onError,
   ]);
 
-  const stopPolling = useCallback(() => {
-    clearPollingTimeout();
-    setStopped(true);
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    return () => {
-      clearPollingTimeout();
-    };
-  }, []);
+    if (enabled && !isPolling && !stopped) {
+      console.log("Auto-starting polling because enabled=true");
+      startPolling();
+    }
+  }, [enabled, isPolling, stopped, startPolling]);
 
   return {
     data,
     loading,
     error,
     stopped,
+    isPolling,
     startPolling,
     stopPolling,
   };

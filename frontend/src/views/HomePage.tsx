@@ -10,28 +10,37 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { usePolling } from "@/hooks/usePolling";
+import { API_ROUTES } from "@/config/api";
 import { SongFormValues, songFormSchema } from "@/lib/schema";
 import { songService } from "@/services/song";
 import { zodResolver } from "@hookform/resolvers/zod";
+import axios from "axios";
 import {
   AlertCircle,
   ArrowRight,
+  CheckCircle,
   Clock,
-  Globe,
-  Info,
+  Loader2,
   Music,
   Search,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import useSWR from "swr";
 
 const HomePage = () => {
+  const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [songId, setSongId] = useState<string | null>(null);
-  const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [showProcessingModal, setShowProcessingModal] = useState(false);
+  const [startPolling, setStartPolling] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string>(
+    "Preparing analysis..."
+  );
+
+  const pollingAttemptsRef = useRef<number>(0);
 
   const form = useForm<SongFormValues>({
     resolver: zodResolver(songFormSchema),
@@ -41,46 +50,70 @@ const HomePage = () => {
     },
   });
 
-  const {
-    data: songStatus,
-    loading: pollingLoading,
-    startPolling,
-    stopPolling,
-  } = usePolling({
-    pollingFn: async () => {
-      if (!songId) throw new Error("No song ID to check status");
-      return await songService.getSongStatus(songId);
-    },
-    stopCondition: (data) => {
-      return data.status === "completed" || data.status === "error";
-    },
-    onSuccess: () => {
-      setAnalysisComplete(true);
-    },
-    enabled: false,
-    interval: 2000,
-  });
+  const statusFetcher = async (url: string) => {
+    try {
+      pollingAttemptsRef.current += 1;
+      if (pollingAttemptsRef.current <= 3) {
+        setStatusMessage("Preparing analysis...");
+      } else {
+        setStatusMessage("Analyzing lyrics...");
+      }
 
-  const { data: songData, loading: songLoading } = usePolling({
-    pollingFn: async () => {
-      if (!songId) throw new Error("No song ID to fetch");
-      return await songService.getSongById(songId);
-    },
-    stopCondition: () => true, // Only fetch once when needed
-    enabled: false,
-  });
+      const response = await axios.get(url);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        if (pollingAttemptsRef.current <= 5) {
+          return { status: "pending", message: "Preparing analysis..." };
+        }
+      }
+      throw error;
+    }
+  };
+
+  const { data: songStatus } = useSWR(
+    startPolling && songId ? `${API_ROUTES.songs.status(songId)}` : null,
+    statusFetcher,
+    {
+      refreshInterval: 2000,
+      revalidateOnFocus: false,
+      dedupingInterval: 1000,
+      errorRetryCount: 5,
+      onSuccess: (data) => {
+        if (data.status === "pending") {
+          setStatusMessage("Waiting to begin analysis...");
+        } else if (data.status === "processing") {
+          setStatusMessage("Analyzing lyrics...");
+        } else if (data.status === "completed") {
+          setStatusMessage("Analysis complete!");
+          setTimeout(() => {
+            navigate(`/songs/${songId}`);
+          }, 1500);
+        } else if (data.status === "error") {
+          setStatusMessage(data.message || "Analysis failed");
+        }
+      },
+      onError: (err) => {
+        console.error("Error polling song status:", err);
+
+        if (pollingAttemptsRef.current > 5) {
+          setStatusMessage(
+            "Error checking status. The analysis may still be in progress."
+          );
+        }
+      },
+    }
+  );
 
   const onSubmit = async (values: SongFormValues) => {
-    // Reset states
     setErrorMessage("");
     setSongId(null);
-    setAnalysisComplete(false);
-    stopPolling();
+    setStartPolling(false);
+    pollingAttemptsRef.current = 0;
 
     setIsSubmitting(true);
 
     try {
-      // Create a new song analysis
       const result = await songService.createSong({
         artist: values.artist,
         title: values.title,
@@ -88,282 +121,307 @@ const HomePage = () => {
 
       setSongId(result.id);
 
-      // Start polling for status if not already completed
-      if (result.status !== "completed" && result.status !== "error") {
-        startPolling();
-      } else {
-        setAnalysisComplete(true);
+      if (result.status === "completed") {
+        navigate(`/songs/${result.id}`);
+        return;
       }
+      if (result.status === "error") {
+        setErrorMessage(result.message || "Analysis failed");
+        setIsSubmitting(false);
+        return;
+      }
+      setShowProcessingModal(true);
+      setTimeout(() => {
+        setStartPolling(true);
+      }, 1500);
+      form.reset();
     } catch (error) {
       console.error("Error analyzing song: ", error);
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to analyze the song. Please try again."
-      );
+      if (error instanceof Error) {
+        if (
+          error.message.includes("No lyrics found") ||
+          error.message.includes("Song not found")
+        ) {
+          setErrorMessage(
+            `We couldn't find "${values.artist} - ${values.title}" in our database. Please check the spelling or try another song.`
+          );
+        } else {
+          setErrorMessage(error.message);
+        }
+      } else {
+        setErrorMessage("Failed to analyze the song. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const fetchSongDetails = async () => {
-    if (songId && analysisComplete) {
-      // Fetch the full song details once analysis is complete
-      startPolling();
-      stopPolling(); // Just fetch once
-    }
+  const ProcessingModal = () => {
+    const artist = form.getValues().artist;
+    const title = form.getValues().title;
+    const status = songStatus?.status || "pending";
+
+    return (
+      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+          <div className="text-center space-y-4">
+            <h3 className="text-xl font-semibold mb-2">
+              {status === "completed"
+                ? "Analysis Complete!"
+                : status === "error"
+                ? "Analysis Failed"
+                : "Analyzing Song"}
+            </h3>
+
+            <div className="py-4">
+              <p className="text-muted-foreground mb-1">
+                {artist} - {title}
+              </p>
+
+              {status === "completed" ? (
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
+              ) : status === "error" ? (
+                <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
+              ) : (
+                <Loader2 className="h-12 w-12 text-primary mx-auto animate-spin" />
+              )}
+            </div>
+
+            <div className="text-sm text-center">
+              {status === "completed" ? (
+                <p className="text-green-600 dark:text-green-400">
+                  Redirecting to results...
+                </p>
+              ) : status === "error" ? (
+                <p className="text-destructive">
+                  {songStatus?.message || "Unable to analyze this song"}
+                </p>
+              ) : (
+                <p className="text-muted-foreground">{statusMessage}</p>
+              )}
+            </div>
+
+            {status === "error" && (
+              <div className="space-y-2 mt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowProcessingModal(false);
+                  }}
+                >
+                  Close
+                </Button>
+                {songId && (
+                  <Button
+                    variant="ghost"
+                    className="ml-2"
+                    onClick={() => navigate(`/songs/${songId}`)}
+                  >
+                    View Details
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  // When analysis is complete, fetch the full song details
-  if (analysisComplete && !songData && !songLoading) {
-    fetchSongDetails();
-  }
-
-  const isLoading = isSubmitting || pollingLoading;
-  const isAnalyzing = !analysisComplete && songId !== null;
-  const analysisStatus = songStatus?.status || "pending";
-
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="text-center mb-12">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-          Discover what songs are really about
-        </h1>
-        <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
-          Get instant lyric summaries and discover country references in your
-          favorite songs
-        </p>
-      </div>
+    <>
+      {showProcessingModal && <ProcessingModal />}
 
-      <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
-        <Card className="overflow-hidden border-primary/10">
-          <div className="h-2 bg-gradient-to-r from-primary to-primary/60"></div>
-          <CardHeader className="space-y-1 pt-6">
-            <CardTitle className="text-2xl flex items-center gap-2">
-              <Search className="h-5 w-5 text-primary" />
-              Analyze a Song
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Enter an artist and song title to analyze the lyrics
-            </p>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-5"
-              >
-                <FormField
-                  control={form.control}
-                  name="artist"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm font-medium">
-                        Artist
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter artist name"
-                          className="h-11 transition-colors focus-visible:ring-primary"
-                          disabled={isLoading || isAnalyzing}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-left" />
-                    </FormItem>
-                  )}
-                />
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-12">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+            Discover what songs are really about
+          </h1>
+          <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
+            Get instant lyric summaries and discover country references in your
+            favorite songs
+          </p>
+        </div>
 
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm font-medium">
-                        Song Title
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter song title"
-                          className="h-11 transition-colors focus-visible:ring-primary"
-                          disabled={isLoading || isAnalyzing}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-left" />
-                    </FormItem>
-                  )}
-                />
-
-                {errorMessage && (
-                  <Alert variant="destructive" className="text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription>{errorMessage}</AlertDescription>
-                  </Alert>
-                )}
-
-                {songId && songStatus?.status === "error" && (
-                  <Alert variant="destructive" className="text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Analysis Failed</AlertTitle>
-                    <AlertDescription>{songStatus.message}</AlertDescription>
-                  </Alert>
-                )}
-
-                {isAnalyzing && (
-                  <div className="rounded-md bg-muted/50 p-3 flex items-center space-x-3">
-                    <div className="relative">
-                      <Clock className="h-5 w-5 text-primary animate-pulse" />
-                    </div>
-                    <div className="text-sm">
-                      <p>
-                        {analysisStatus === "pending" &&
-                          "Waiting to begin analysis..."}
-                        {analysisStatus === "processing" &&
-                          "Analyzing song lyrics..."}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col space-y-2">
-                  <Button
-                    type="submit"
-                    className="w-full h-11 text-sm font-medium transition-all"
-                    disabled={isLoading || isAnalyzing}
-                  >
-                    {isSubmitting ? (
-                      <span className="flex items-center gap-2">
-                        <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></span>
-                        Submitting...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <Search className="h-4 w-4" />
-                        Analyze Song
-                      </span>
+        <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
+          <Card className="overflow-hidden border-primary/10">
+            <div className="h-2 bg-gradient-to-r from-primary to-primary/60"></div>
+            <CardHeader className="space-y-1 pt-6">
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <Search className="h-5 w-5 text-primary" />
+                Analyze a Song
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Enter an artist and song title to analyze the lyrics
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-5"
+                >
+                  <FormField
+                    control={form.control}
+                    name="artist"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">
+                          Artist
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Enter artist name"
+                            className="h-11 transition-colors focus-visible:ring-primary"
+                            disabled={isSubmitting}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-left" />
+                      </FormItem>
                     )}
-                  </Button>
+                  />
 
-                  <Button
-                    variant="outline"
-                    type="button"
-                    asChild
-                    className="w-full h-11"
-                  >
-                    <Link
-                      to="/songs"
-                      className="flex items-center justify-center gap-2"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                      View All Analyses
-                    </Link>
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+                  <FormField
+                    control={form.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">
+                          Song Title
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Enter song title"
+                            className="h-11 transition-colors focus-visible:ring-primary"
+                            disabled={isSubmitting}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-left" />
+                      </FormItem>
+                    )}
+                  />
 
-        <Card
-          className={`overflow-hidden ${
-            !songData ? "border-muted bg-muted/5" : "border-primary/10"
-          }`}
-        >
-          <div className="h-2 bg-gradient-to-r from-primary/60 to-primary"></div>
-          <CardHeader className="space-y-1 pt-6">
-            <CardTitle className="text-2xl flex items-center gap-2">
-              <Info className="h-5 w-5 text-primary" />
-              Analysis Results
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Summary and country mentions from the lyrics
-            </p>
-          </CardHeader>
-          <CardContent>
-            {songLoading ? (
-              <div className="flex flex-col items-center justify-center h-64 py-8">
-                <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full mb-4"></div>
-                <p className="text-muted-foreground">
-                  Loading analysis results...
-                </p>
-              </div>
-            ) : songData ? (
-              <div className="space-y-6">
-                <div className="p-4 rounded-lg bg-muted/30 border border-border">
-                  <h3 className="text-sm font-semibold mb-2 text-foreground/80 uppercase tracking-wide">
-                    Song Details
-                  </h3>
-                  <p className="text-lg font-medium">
-                    {songData.artist} - {songData.title}
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 text-foreground/80 uppercase tracking-wide flex items-center gap-1.5">
-                    <span className="w-1 h-4 bg-primary rounded-full"></span>
-                    Summary
-                  </h3>
-                  <div className="p-4 rounded-lg border bg-card">
-                    <p className="italic">
-                      {songData.summary || "No summary available"}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 text-foreground/80 uppercase tracking-wide flex items-center gap-1.5">
-                    <span className="w-1 h-4 bg-primary rounded-full"></span>
-                    <Globe className="h-4 w-4" />
-                    Countries Mentioned
-                  </h3>
-                  {songData.countries && songData.countries.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {songData.countries.map((country) => (
-                        <span
-                          key={country}
-                          className="px-3 py-1.5 bg-secondary/60 text-secondary-foreground rounded-full text-sm font-medium"
-                        >
-                          {country}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      No countries mentioned
-                    </p>
+                  {errorMessage && (
+                    <Alert variant="destructive" className="text-sm">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Error</AlertTitle>
+                      <AlertDescription>{errorMessage}</AlertDescription>
+                    </Alert>
                   )}
-                </div>
 
-                {songId && (
-                  <div className="pt-4">
-                    <Button asChild className="w-full">
+                  <div className="flex flex-col space-y-2">
+                    <Button
+                      type="submit"
+                      className="w-full h-11 text-sm font-medium transition-all"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <span className="flex items-center gap-2">
+                          <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></span>
+                          Submitting...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <Search className="h-4 w-4" />
+                          Analyze Song
+                        </span>
+                      )}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      type="button"
+                      asChild
+                      className="w-full h-11"
+                    >
                       <Link
-                        to={`/songs/${songId}`}
+                        to="/songs"
                         className="flex items-center justify-center gap-2"
                       >
-                        <Info className="h-4 w-4" />
-                        View Full Details
+                        <ArrowRight className="h-4 w-4" />
+                        View All Analyses
                       </Link>
                     </Button>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 py-8 text-muted-foreground">
-                <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
-                  <Music className="h-8 w-8 text-muted-foreground opacity-40" />
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden border-muted bg-muted/5">
+            <div className="h-2 bg-gradient-to-r from-primary/60 to-primary"></div>
+            <CardHeader className="space-y-1 pt-6">
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                How It Works
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Understand the lyrics analysis process
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-primary font-semibold">1</span>
+                    </div>
+                    <div>
+                      <h3 className="font-medium mb-1">Enter Song Details</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Provide the artist name and song title you want to
+                        analyze.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-primary font-semibold">2</span>
+                    </div>
+                    <div>
+                      <h3 className="font-medium mb-1">Lyrics Processing</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Our system fetches the lyrics and analyzes them using
+                        advanced AI.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-primary font-semibold">3</span>
+                    </div>
+                    <div>
+                      <h3 className="font-medium mb-1">View Results</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Get a concise summary and discover all countries
+                        mentioned in the lyrics.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-center max-w-xs">
-                  Enter a song to see its lyrical analysis and country mentions
-                </p>
+
+                <div className="mt-6 bg-muted/30 rounded-lg p-4 border border-border">
+                  <div className="flex items-center gap-3">
+                    <Music className="h-8 w-8 text-muted-foreground/70" />
+                    <div>
+                      <h3 className="font-medium">Try Popular Songs</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Not sure what to analyze? Try songs like "Imagine" by
+                        John Lennon or "Bohemian Rhapsody" by Queen.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

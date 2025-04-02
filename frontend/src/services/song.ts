@@ -44,9 +44,11 @@ class SongService {
       return response.data.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(
-          error.response?.data?.message || "Failed to create song analysis"
-        );
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Failed to create song analysis";
+        throw new Error(errorMessage);
       }
       throw error;
     }
@@ -60,9 +62,11 @@ class SongService {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(
-          error.response?.data?.message || "Failed to fetch songs"
-        );
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Failed to fetch songs";
+        throw new Error(errorMessage);
       }
       throw error;
     }
@@ -74,9 +78,11 @@ class SongService {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(
-          error.response?.data?.message || "Failed to fetch song details"
-        );
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Failed to fetch song details";
+        throw new Error(errorMessage);
       }
       throw error;
     }
@@ -84,13 +90,15 @@ class SongService {
 
   async getSongStatus(id: string): Promise<SongStatusResponse> {
     try {
-      const response = await axiosInstance.get(`${this.baseUrl}/${id}/status/`);
+      const response = await axiosInstance.get(`${this.baseUrl}${id}/status/`);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(
-          error.response?.data?.message || "Failed to fetch song status"
-        );
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Failed to fetch song status";
+        throw new Error(errorMessage);
       }
       throw error;
     }
@@ -99,14 +107,16 @@ class SongService {
   async reanalyzeSong(id: string): Promise<SongResponse> {
     try {
       const response = await axiosInstance.post(
-        `${this.baseUrl}/${id}/reanalyze/`
+        `${this.baseUrl}${id}/reanalyze/`
       );
       return response.data.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(
-          error.response?.data?.message || "Failed to reanalyze song"
-        );
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Failed to reanalyze song";
+        throw new Error(errorMessage);
       }
       throw error;
     }

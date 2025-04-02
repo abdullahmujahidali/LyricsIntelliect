@@ -8,47 +8,70 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { SongDetailResponse, songService } from "@/services/song";
+import { API_ROUTES } from "@/config/api";
+import { songService } from "@/services/song";
 import { AlertCircle, ArrowLeft, Clock, Globe, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
+import useSWR from "swr";
 
 const SongDetailPage = () => {
   const { id } = useParams<{ id: string }>();
-  const [song, setSong] = useState<SongDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
-
-  const fetchSong = async () => {
-    if (!id) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await songService.getSongById(id);
-      setSong(data);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load song details"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSong();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
+  const {
+    data: song,
+    error,
+    isLoading,
+    mutate: refreshSong,
+  } = useSWR(id ? `${API_ROUTES.songs.byId(id)}` : null, {
+    revalidateOnFocus: false,
+    dedupingInterval: 5000,
+    errorRetryCount: 3,
+  });
 
   const handleReanalyze = async () => {
     if (!id) return;
+
     try {
       setReanalyzing(true);
+      setReanalyzeError(null);
       await songService.reanalyzeSong(id);
-      fetchSong();
+      refreshSong();
+      const pollInterval = setInterval(async () => {
+        try {
+          const refreshedSong = await songService.getSongById(id);
+          refreshSong(refreshedSong, false); // false means don't revalidate
+
+          if (
+            refreshedSong.status !== "pending" &&
+            refreshedSong.status !== "processing"
+          ) {
+            clearInterval(pollInterval);
+          }
+        } catch (err) {
+          console.error("Error polling for song updates:", err);
+          clearInterval(pollInterval);
+        }
+      }, 2000);
+      setTimeout(() => clearInterval(pollInterval), 120000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reanalyze song");
+      const errorMessage = "Failed to reanalyze song";
+      if (err instanceof Error) {
+        setReanalyzeError(err.message);
+        if (
+          err.message.includes("No lyrics found") ||
+          err.message.includes("Song not found")
+        ) {
+          setReanalyzeError(
+            `We couldn't find this song in the lyrics database anymore. It might have been removed or the API service may have changed.`
+          );
+        } else {
+          setReanalyzeError(err.message);
+        }
+      } else {
+        setReanalyzeError(errorMessage);
+      }
     } finally {
       setReanalyzing(false);
     }
@@ -68,7 +91,7 @@ const SongDetailPage = () => {
     }
   };
 
-  if (loading && !song) {
+  if (isLoading) {
     return <Loading />;
   }
 
@@ -86,7 +109,11 @@ const SongDetailPage = () => {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {error instanceof Error
+              ? error.message
+              : "Failed to load song details"}
+          </AlertDescription>
         </Alert>
       </div>
     );
@@ -147,6 +174,14 @@ const SongDetailPage = () => {
           )}
         </Button>
       </div>
+
+      {reanalyzeError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Reanalysis Failed</AlertTitle>
+          <AlertDescription>{reanalyzeError}</AlertDescription>
+        </Alert>
+      )}
 
       {song.status === "error" && song.message && (
         <Alert variant="destructive">
@@ -240,8 +275,6 @@ const SongDetailPage = () => {
           </CardContent>
         </Card>
       </div>
-
-      {/* Metadata */}
       <Card>
         <CardHeader>
           <CardTitle>Additional Information</CardTitle>

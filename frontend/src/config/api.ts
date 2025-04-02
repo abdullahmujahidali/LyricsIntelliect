@@ -15,8 +15,8 @@ export const API_ROUTES = {
   songs: {
     base: `${BASE_PATH}/songs/`,
     byId: (id: string) => `${BASE_PATH}/songs/${id}/`,
-    status: (id: string) => `${BASE_PATH}/songs${id}/status/`,
-    reanalyze: (id: string) => `${BASE_PATH}/songs${id}/reanalyze/`,
+    status: (id: string) => `${BASE_PATH}/songs/${id}/status/`,
+    reanalyze: (id: string) => `${BASE_PATH}/songs/${id}/reanalyze/`,
   },
 };
 

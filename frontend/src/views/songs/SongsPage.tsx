@@ -1,4 +1,7 @@
 import Loading from "@/components/Loading";
+import { EmptyState } from "@/components/songs/EmptyState";
+import { ErrorMessage } from "@/components/songs/ErrorMessage";
+import { SongRow } from "@/components/songs/Row";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,48 +13,69 @@ import {
 import {
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { API_ROUTES } from "@/config/api";
 import { SongResponse, songService } from "@/services/song";
-import { Eye, RefreshCw, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
+import useSWR from "swr";
 
 const SongsPage = () => {
-  const [songs, setSongs] = useState<SongResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<string>>(new Set());
+  const [reanalyzeErrors, setReanalyzeErrors] = useState<
+    Record<string, string>
+  >({});
 
-  const loadSongs = async () => {
-    try {
-      setError(null);
-      setLoading(true);
-      const response = await songService.getSongs();
-      setSongs(response.results);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load songs");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    data: songsResponse,
+    error,
+    mutate: refreshSongs,
+    isLoading,
+  } = useSWR(API_ROUTES.songs.base, {
+    revalidateOnFocus: false,
+    refreshInterval: 10000,
+    dedupingInterval: 3000,
+    errorRetryCount: 3,
+  });
 
-  useEffect(() => {
-    loadSongs();
-  }, []);
+  const songs = songsResponse?.results || [];
 
   const handleReanalyze = async (songId: string) => {
     try {
+      setReanalyzeErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[songId];
+        return newErrors;
+      });
+
       setReanalyzingIds((prev) => new Set(prev).add(songId));
       await songService.reanalyzeSong(songId);
-
-      // Refresh the songs list
-      await loadSongs();
+      refreshSongs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reanalyze song");
+      if (err instanceof Error) {
+        let errorMessage = err.message;
+        if (
+          err.message.includes("No lyrics found") ||
+          err.message.includes("Song not found") ||
+          err.message.includes("Cannot reanalyze song")
+        ) {
+          errorMessage = "Song could not be found in the lyrics database";
+        }
+
+        setReanalyzeErrors((prev) => ({
+          ...prev,
+          [songId]: errorMessage,
+        }));
+      } else {
+        setReanalyzeErrors((prev) => ({
+          ...prev,
+          [songId]: "Failed to reanalyze song",
+        }));
+      }
     } finally {
       setReanalyzingIds((prev) => {
         const newSet = new Set(prev);
@@ -61,21 +85,7 @@ const SongsPage = () => {
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
-      case "processing":
-      case "pending":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
-      case "error":
-        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
-      default:
-        return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
-    }
-  };
-
-  if (loading && songs.length === 0) {
+  if (isLoading && songs.length === 0) {
     return <Loading />;
   }
 
@@ -99,9 +109,7 @@ const SongsPage = () => {
       </div>
 
       {error && (
-        <div className="p-4 rounded-md bg-destructive/15 text-destructive">
-          {error}
-        </div>
+        <ErrorMessage message={error.message || "Failed to load songs"} />
       )}
 
       <Card className="overflow-hidden border-primary/10">
@@ -113,14 +121,7 @@ const SongsPage = () => {
         </CardHeader>
         <CardContent className="p-0">
           {songs.length === 0 ? (
-            <div className="py-16 text-center text-muted-foreground">
-              <p>You haven't analyzed any songs yet.</p>
-              <Button variant="link" asChild>
-                <Link to="/" className="mt-2">
-                  Analyze your first song
-                </Link>
-              </Button>
-            </div>
+            <EmptyState />
           ) : (
             <Table>
               <TableHeader>
@@ -133,56 +134,14 @@ const SongsPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {songs.map((song) => (
-                  <TableRow key={song.id}>
-                    <TableCell className="font-medium">{song.artist}</TableCell>
-                    <TableCell>{song.title}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(
-                          song.status
-                        )}`}
-                      >
-                        {song.status.charAt(0).toUpperCase() +
-                          song.status.slice(1)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(song.created).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" asChild>
-                          <Link to={`/songs/${song.id}`}>
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Link>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleReanalyze(song.id)}
-                          disabled={
-                            reanalyzingIds.has(song.id) ||
-                            song.status === "processing" ||
-                            song.status === "pending"
-                          }
-                        >
-                          {reanalyzingIds.has(song.id) ? (
-                            <>
-                              <span className="animate-spin h-4 w-4 mr-1 border-2 border-current border-t-transparent rounded-full"></span>
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="h-4 w-4 mr-1" />
-                              Reanalyze
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                {songs.map((song: SongResponse) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    isReanalyzing={reanalyzingIds.has(song.id)}
+                    reanalyzeError={reanalyzeErrors[song.id]}
+                    onReanalyze={() => handleReanalyze(song.id)}
+                  />
                 ))}
               </TableBody>
             </Table>

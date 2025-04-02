@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from .models import Song
 from .serializers import SongDetailSerializer, SongSerializer
+from .services import LyricsService
 from .tasks import analyze_song_task
 
 
@@ -64,6 +65,12 @@ class SongViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
+        song_exists, error_message = LyricsService.check_song_exists(artist, title)
+        if not song_exists:
+            return Response(
+                {"message": f"Cannot analyze song: {error_message}", "success": False},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         song = serializer.save(status="pending", created_by=request.user)
         task = analyze_song_task.delay(str(song.id))
         song.task_id = task.id
@@ -81,6 +88,18 @@ class SongViewSet(viewsets.ModelViewSet):
     def reanalyze(self, request, pk=None):
         """Re-analyze an existing song"""
         song = self.get_object()
+        song_exists, error_message = LyricsService.check_song_exists(
+            song.artist, song.title
+        )
+
+        if not song_exists:
+            return Response(
+                {
+                    "message": f"Cannot reanalyze song: {error_message}",
+                    "success": False,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         cache_key_lyrics = f"lyrics_{song.artist.lower()}_{song.title.lower()}"
         cache_key_analysis = f"analysis_{hash(song.lyrics if song.lyrics else '')}"
         cache.delete(cache_key_lyrics)

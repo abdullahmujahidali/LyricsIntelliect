@@ -14,6 +14,77 @@ client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 class LyricsService:
     @staticmethod
+    def check_song_exists(artist: str, title: str) -> Tuple[bool, str]:
+        """
+        Check if a song exists in Musixmatch API without fetching full lyrics
+
+        Args:
+            artist: The artist name
+            title: The song title
+
+        Returns:
+            Tuple[bool, str]: (exists, message)
+        """
+        cache_key = f"song_exists_{artist.lower()}_{title.lower()}"
+        cached_result = cache.get(cache_key)
+
+        if cached_result is not None:
+            logger.info(
+                "Song existence check for %s - %s fetched from cache", artist, title
+            )
+            return cached_result
+
+        try:
+            search_url = f"{settings.MUSIXMATCH_API_BASE_URL}/matcher.lyrics.get"
+            params = {
+                "apikey": settings.MUSIXMATCH_API_KEY,
+                "q_artist": artist,
+                "q_track": title,
+                "format": "json",
+            }
+
+            response = requests.get(search_url, params=params, timeout=10)
+            data = response.json()
+
+            status_code = data.get("message", {}).get("header", {}).get("status_code")
+
+            if status_code != 200:
+                logger.warning(
+                    "Musixmatch API error for %s - %s: status_code=%s",
+                    artist,
+                    title,
+                    status_code,
+                )
+                error_message = (
+                    data.get("message", {})
+                    .get("header", {})
+                    .get("status_message", "Song not found or API error")
+                )
+                result = (False, error_message)
+                cache.set(cache_key, result, settings.LYRICS_CACHE_TTL)
+                return result
+
+            lyrics_data = data.get("message", {}).get("body", {}).get("lyrics", {})
+            if not lyrics_data or not lyrics_data.get("lyrics_body"):
+                result = (False, "No lyrics found for this song")
+                cache.set(cache_key, result, settings.LYRICS_CACHE_TTL)
+                return result
+
+            result = (True, "Song exists")
+            cache.set(cache_key, result, settings.LYRICS_CACHE_TTL)
+            return result
+
+        except Exception as e:
+            logger.error(
+                "Error checking if song exists for %s - %s: %s",
+                artist,
+                title,
+                str(e),
+                exc_info=True,
+            )
+            return False, f"Error checking song: {str(e)}"
+
+    @staticmethod
     def fetch_lyrics(artist: str, title: str) -> Tuple[bool, str, Optional[str]]:
         """
         Fetch lyrics from Musixmatch API
