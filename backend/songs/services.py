@@ -92,13 +92,6 @@ class AnalysisService:
                 "countries": ["Country1", "Country2", ...]
             }}
             """
-            if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY.startswith(
-                "sk-proj-"
-            ):
-                logger.error(
-                    "Invalid OpenAI API key format: using test/project key instead of production key"
-                )
-                return False, "Invalid OpenAI API key configuration", {}
 
             response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,

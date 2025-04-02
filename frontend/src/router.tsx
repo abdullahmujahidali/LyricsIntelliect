@@ -1,14 +1,16 @@
 import { useAuth } from "@/context/AuthContext";
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, RouterProvider } from "react-router";
+import Loading from "./components/Loading";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthLayout from "./layout/AuthLayout";
 import MainLayout from "./layout/MainLayout";
-import Loading from "./components/Loading";
 
 const HomePage = lazy(() => import("@/views/HomePage"));
 const LoginPage = lazy(() => import("@/views/LoginPage"));
 const RegisterPage = lazy(() => import("@/views/RegisterPage"));
+const SongsPage = lazy(() => import("@/views/songs/SongsPage"));
+const SongDetailPage = lazy(() => import("@/views/songs/SongDetailPage"));
 
 export function Router() {
   const { isAuthenticated } = useAuth();
@@ -27,6 +29,22 @@ export function Router() {
           element: (
             <Suspense fallback={<Loading />}>
               <HomePage />
+            </Suspense>
+          ),
+        },
+        {
+          path: "songs",
+          element: (
+            <Suspense fallback={<Loading />}>
+              <SongsPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: "songs/:id",
+          element: (
+            <Suspense fallback={<Loading />}>
+              <SongDetailPage />
             </Suspense>
           ),
         },

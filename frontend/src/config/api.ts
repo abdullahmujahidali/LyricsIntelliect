@@ -12,6 +12,12 @@ export const API_ROUTES = {
     me: `${BASE_PATH}/users/me/`,
     byId: (id: string) => `${BASE_PATH}/users/${id}/`,
   },
+  songs: {
+    base: `${BASE_PATH}/songs/`,
+    byId: (id: string) => `${BASE_PATH}/songs/${id}/`,
+    status: (id: string) => `${BASE_PATH}/songs${id}/status/`,
+    reanalyze: (id: string) => `${BASE_PATH}/songs${id}/reanalyze/`,
+  },
 };
 
 export const constructUrl = (

@@ -8,8 +8,10 @@ export const songFormSchema = z.object({
 export type SongFormValues = z.infer<typeof songFormSchema>;
 
 export type SongAnalysisResult = {
+  id: string;
   artist: string;
   title: string;
+  status: string;
   summary: string;
   countries: string[];
 };

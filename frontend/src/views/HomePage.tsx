@@ -10,20 +10,28 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  SongAnalysisResult,
-  SongFormValues,
-  songFormSchema,
-} from "@/lib/schema";
+import { usePolling } from "@/hooks/usePolling";
+import { SongFormValues, songFormSchema } from "@/lib/schema";
+import { songService } from "@/services/song";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Globe, Info, Music, Search } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Clock,
+  Globe,
+  Info,
+  Music,
+  Search,
+} from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { Link } from "react-router";
 
 const HomePage = () => {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [song, setSong] = useState<SongAnalysisResult | null>(null);
+  const [songId, setSongId] = useState<string | null>(null);
+  const [analysisComplete, setAnalysisComplete] = useState(false);
 
   const form = useForm<SongFormValues>({
     resolver: zodResolver(songFormSchema),
@@ -33,30 +41,87 @@ const HomePage = () => {
     },
   });
 
+  const {
+    data: songStatus,
+    loading: pollingLoading,
+    startPolling,
+    stopPolling,
+  } = usePolling({
+    pollingFn: async () => {
+      if (!songId) throw new Error("No song ID to check status");
+      return await songService.getSongStatus(songId);
+    },
+    stopCondition: (data) => {
+      return data.status === "completed" || data.status === "error";
+    },
+    onSuccess: () => {
+      setAnalysisComplete(true);
+    },
+    enabled: false,
+    interval: 2000,
+  });
+
+  const { data: songData, loading: songLoading } = usePolling({
+    pollingFn: async () => {
+      if (!songId) throw new Error("No song ID to fetch");
+      return await songService.getSongById(songId);
+    },
+    stopCondition: () => true, // Only fetch once when needed
+    enabled: false,
+  });
+
   const onSubmit = async (values: SongFormValues) => {
+    // Reset states
     setErrorMessage("");
-    setSong(null);
-    setIsLoading(true);
+    setSongId(null);
+    setAnalysisComplete(false);
+    stopPolling();
+
+    setIsSubmitting(true);
 
     try {
-      // For now I am just simulating a delay to show API loading
-      // Later when backend is ready it will be replaced with actual API call
-      setTimeout(() => {
-        setSong({
-          artist: values.artist,
-          title: values.title,
-          summary:
-            "This song explores themes of personal growth and resilience through difficult times.",
-          countries: ["United States", "France", "Japan"],
-        });
-        setIsLoading(false);
-      }, 1500);
+      // Create a new song analysis
+      const result = await songService.createSong({
+        artist: values.artist,
+        title: values.title,
+      });
+
+      setSongId(result.id);
+
+      // Start polling for status if not already completed
+      if (result.status !== "completed" && result.status !== "error") {
+        startPolling();
+      } else {
+        setAnalysisComplete(true);
+      }
     } catch (error) {
       console.error("Error analyzing song: ", error);
-      setErrorMessage("Failed to analyze the song. Please try again.");
-      setIsLoading(false);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to analyze the song. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const fetchSongDetails = async () => {
+    if (songId && analysisComplete) {
+      // Fetch the full song details once analysis is complete
+      startPolling();
+      stopPolling(); // Just fetch once
+    }
+  };
+
+  // When analysis is complete, fetch the full song details
+  if (analysisComplete && !songData && !songLoading) {
+    fetchSongDetails();
+  }
+
+  const isLoading = isSubmitting || pollingLoading;
+  const isAnalyzing = !analysisComplete && songId !== null;
+  const analysisStatus = songStatus?.status || "pending";
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -100,6 +165,7 @@ const HomePage = () => {
                         <Input
                           placeholder="Enter artist name"
                           className="h-11 transition-colors focus-visible:ring-primary"
+                          disabled={isLoading || isAnalyzing}
                           {...field}
                         />
                       </FormControl>
@@ -120,6 +186,7 @@ const HomePage = () => {
                         <Input
                           placeholder="Enter song title"
                           className="h-11 transition-colors focus-visible:ring-primary"
+                          disabled={isLoading || isAnalyzing}
                           {...field}
                         />
                       </FormControl>
@@ -136,23 +203,64 @@ const HomePage = () => {
                   </Alert>
                 )}
 
-                <Button
-                  type="submit"
-                  className="w-full h-11 text-sm font-medium transition-all"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></span>
-                      Analyzing...
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <Search className="h-4 w-4" />
-                      Analyze Song
-                    </span>
-                  )}
-                </Button>
+                {songId && songStatus?.status === "error" && (
+                  <Alert variant="destructive" className="text-sm">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Analysis Failed</AlertTitle>
+                    <AlertDescription>{songStatus.message}</AlertDescription>
+                  </Alert>
+                )}
+
+                {isAnalyzing && (
+                  <div className="rounded-md bg-muted/50 p-3 flex items-center space-x-3">
+                    <div className="relative">
+                      <Clock className="h-5 w-5 text-primary animate-pulse" />
+                    </div>
+                    <div className="text-sm">
+                      <p>
+                        {analysisStatus === "pending" &&
+                          "Waiting to begin analysis..."}
+                        {analysisStatus === "processing" &&
+                          "Analyzing song lyrics..."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col space-y-2">
+                  <Button
+                    type="submit"
+                    className="w-full h-11 text-sm font-medium transition-all"
+                    disabled={isLoading || isAnalyzing}
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></span>
+                        Submitting...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        Analyze Song
+                      </span>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    type="button"
+                    asChild
+                    className="w-full h-11"
+                  >
+                    <Link
+                      to="/songs"
+                      className="flex items-center justify-center gap-2"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                      View All Analyses
+                    </Link>
+                  </Button>
+                </div>
               </form>
             </Form>
           </CardContent>
@@ -160,7 +268,7 @@ const HomePage = () => {
 
         <Card
           className={`overflow-hidden ${
-            !song ? "border-muted bg-muted/5" : "border-primary/10"
+            !songData ? "border-muted bg-muted/5" : "border-primary/10"
           }`}
         >
           <div className="h-2 bg-gradient-to-r from-primary/60 to-primary"></div>
@@ -174,14 +282,21 @@ const HomePage = () => {
             </p>
           </CardHeader>
           <CardContent>
-            {song ? (
+            {songLoading ? (
+              <div className="flex flex-col items-center justify-center h-64 py-8">
+                <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full mb-4"></div>
+                <p className="text-muted-foreground">
+                  Loading analysis results...
+                </p>
+              </div>
+            ) : songData ? (
               <div className="space-y-6">
                 <div className="p-4 rounded-lg bg-muted/30 border border-border">
                   <h3 className="text-sm font-semibold mb-2 text-foreground/80 uppercase tracking-wide">
                     Song Details
                   </h3>
                   <p className="text-lg font-medium">
-                    {song.artist} - {song.title}
+                    {songData.artist} - {songData.title}
                   </p>
                 </div>
 
@@ -191,7 +306,9 @@ const HomePage = () => {
                     Summary
                   </h3>
                   <div className="p-4 rounded-lg border bg-card">
-                    <p className="italic">{song.summary}</p>
+                    <p className="italic">
+                      {songData.summary || "No summary available"}
+                    </p>
                   </div>
                 </div>
 
@@ -201,9 +318,9 @@ const HomePage = () => {
                     <Globe className="h-4 w-4" />
                     Countries Mentioned
                   </h3>
-                  {song.countries.length > 0 ? (
+                  {songData.countries && songData.countries.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
-                      {song.countries.map((country) => (
+                      {songData.countries.map((country) => (
                         <span
                           key={country}
                           className="px-3 py-1.5 bg-secondary/60 text-secondary-foreground rounded-full text-sm font-medium"
@@ -218,6 +335,20 @@ const HomePage = () => {
                     </p>
                   )}
                 </div>
+
+                {songId && (
+                  <div className="pt-4">
+                    <Button asChild className="w-full">
+                      <Link
+                        to={`/songs/${songId}`}
+                        className="flex items-center justify-center gap-2"
+                      >
+                        <Info className="h-4 w-4" />
+                        View Full Details
+                      </Link>
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 py-8 text-muted-foreground">
