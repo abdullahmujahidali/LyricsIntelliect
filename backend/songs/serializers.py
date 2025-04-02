@@ -1,10 +1,24 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Song
 
+User = get_user_model()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for User model (minimal)"""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "full_name"]
+        read_only_fields = ["id", "email", "full_name"]
+
 
 class SongSerializer(serializers.ModelSerializer):
     """Serializer for Song model"""
+
+    created_by = UserSerializer(read_only=True)
 
     class Meta:
         model = Song
@@ -12,24 +26,30 @@ class SongSerializer(serializers.ModelSerializer):
             "id",
             "artist",
             "title",
-            "lyrics",
+            "status",
+            "message",
             "summary",
             "countries",
-            "created_at",
-            "updated_at",
+            "created",
+            "modified",
+            "created_by",
         ]
         read_only_fields = [
-            "lyrics",
+            "status",
+            "message",
             "summary",
             "countries",
-            "created_at",
-            "updated_at",
+            "created",
+            "modified",
+            "created_by",
         ]
 
 
 class SongDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed Song information"""
 
+    created_by = UserSerializer(read_only=True)
+
     class Meta:
         model = Song
         fields = [
@@ -39,7 +59,10 @@ class SongDetailSerializer(serializers.ModelSerializer):
             "lyrics",
             "summary",
             "countries",
-            "created_at",
-            "updated_at",
+            "status",
+            "message",
+            "created",
+            "modified",
+            "created_by",
         ]
-        read_only_fields = ["created_at", "updated_at"]
+        read_only_fields = ["created", "modified", "created_by"]
