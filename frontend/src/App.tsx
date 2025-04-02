@@ -1,11 +1,11 @@
 import "./App.css";
 import { AuthProvider } from "./context/AuthContext";
-import Home from "./views/HomePage";
+import Router from "./router";
 
 function App() {
   return (
     <AuthProvider>
-      <Home />
+      <Router />
     </AuthProvider>
   );
 }
