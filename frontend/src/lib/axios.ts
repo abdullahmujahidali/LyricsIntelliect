@@ -38,7 +38,7 @@ axiosInstance.interceptors.response.use(
 
       if (!auth?.refreshToken) {
         removeStoredAuth();
-        window.location.href = "/auth/login";
+        window.location.href = "/login";
         return Promise.reject(error);
       }
 
@@ -65,7 +65,7 @@ axiosInstance.interceptors.response.use(
           refreshError.response?.data?.code === "token_not_valid")
       ) {
         removeStoredAuth();
-        window.location.href = "/auth/login";
+        window.location.href = "/login";
       }
       return Promise.reject(refreshError);
     }
