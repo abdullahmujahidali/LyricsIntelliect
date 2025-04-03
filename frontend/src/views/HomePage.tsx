@@ -1,4 +1,3 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,7 +9,10 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+
 import { API_ROUTES } from "@/config/api";
+import axiosInstance from "@/lib/axios";
 import { SongFormValues, songFormSchema } from "@/lib/schema";
 import { songService } from "@/services/song";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,7 +34,6 @@ import useSWR from "swr";
 const HomePage = () => {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
   const [songId, setSongId] = useState<string | null>(null);
   const [showProcessingModal, setShowProcessingModal] = useState(false);
   const [startPolling, setStartPolling] = useState(false);
@@ -58,8 +59,9 @@ const HomePage = () => {
       } else {
         setStatusMessage("Analyzing lyrics...");
       }
+      console.log("url: ", url);
 
-      const response = await axios.get(url);
+      const response = await axiosInstance.get(url);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
@@ -106,7 +108,6 @@ const HomePage = () => {
   );
 
   const onSubmit = async (values: SongFormValues) => {
-    setErrorMessage("");
     setSongId(null);
     setStartPolling(false);
     pollingAttemptsRef.current = 0;
@@ -126,7 +127,7 @@ const HomePage = () => {
         return;
       }
       if (result.status === "error") {
-        setErrorMessage(result.message || "Analysis failed");
+        toast.error(result.message || "Analysis failed");
         setIsSubmitting(false);
         return;
       }
@@ -142,14 +143,14 @@ const HomePage = () => {
           error.message.includes("No lyrics found") ||
           error.message.includes("Song not found")
         ) {
-          setErrorMessage(
+          toast.error(
             `We couldn't find "${values.artist} - ${values.title}" in our database. Please check the spelling or try another song.`
           );
         } else {
-          setErrorMessage(error.message);
+          toast.error(error.message);
         }
       } else {
-        setErrorMessage("Failed to analyze the song. Please try again.");
+        toast.error("Failed to analyze the song. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -232,7 +233,7 @@ const HomePage = () => {
     <>
       {showProcessingModal && <ProcessingModal />}
 
-      <div className="max-w-4xl mx-auto">
+      <div className=" mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
             Discover what songs are really about
@@ -302,14 +303,6 @@ const HomePage = () => {
                       </FormItem>
                     )}
                   />
-
-                  {errorMessage && (
-                    <Alert variant="destructive" className="text-sm">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Error</AlertTitle>
-                      <AlertDescription>{errorMessage}</AlertDescription>
-                    </Alert>
-                  )}
 
                   <div className="flex flex-col space-y-2">
                     <Button
