@@ -1,7 +1,7 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; connect-src 'self' http://3.83.224.94:* https://3.83.224.94:* ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* http://3.83.224.94:* https://3.83.224.94:* ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
     Referrer-Policy = "no-referrer"
     Upgrade-Insecure-Requests = "1"
 
@@ -12,6 +12,12 @@
 [[redirects]]
   from = "/api/*"
   to = "http://3.83.224.94/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/local-api/*"
+  to = "http://127.0.0.1:8000/api/:splat"
   status = 200
   force = true
 
