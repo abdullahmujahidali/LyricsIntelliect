@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { API_ROUTES } from "@/config/api";
 import { formatDate } from "@/lib/utils";
-import { SongResponse, songService } from "@/services/song";
+import { SongResponse, songService, SongStatusResponse } from "@/services/song";
 
 const SongsPage = () => {
   const [pollingSongs, setPollingSongs] = useState<Record<string, boolean>>({});
@@ -61,10 +61,10 @@ const SongsPage = () => {
         const status = await songService.getSongStatus(songId);
         return status;
       },
-      stopCondition: (data) => {
+      stopCondition: (data: SongStatusResponse) => {
         return data.status === "completed" || data.status === "error";
       },
-      onSuccess: (data) => {
+      onSuccess: (data: SongStatusResponse) => {
         if (data.status === "completed") {
           toast.success("Song analysis completed");
         } else if (data.status === "error") {
