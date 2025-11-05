@@ -1,4 +1,4 @@
-Django==5.1.7
+Django==5.1.14
 djangorestframework==3.16.0
 requests==2.32.3
 dotenv-python==0.0.1
