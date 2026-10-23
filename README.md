@@ -2,21 +2,18 @@
 
 LyricsIntelliect is a web application that analyzes song lyrics to provide meaningful insights. Simply enter an artist and song title, and the application will fetch the lyrics, provide a brief summary of what the song is about, and identify any countries mentioned in the lyrics.
 
-![LyricsIntelliect](https://example.com/lyricsintelliect-screenshot.png)
-
 ## 🌟 Features
 
 - **Song Analysis**: Get a concise one-sentence summary of what a song is about
 - **Country Detection**: Identify countries mentioned in song lyrics
 - **User Authentication**: Secure login/registration system
 - **History Tracking**: View your previously analyzed songs
-- **Reanalysis**: Reanalyze songs with the latest analysis algorithms
+- **Reanalysis**: Re-run the analysis for a song you have already submitted
 - **Responsive Design**: Works on desktop and mobile devices
 
 ## 🔍 Demo
 
 - **Frontend**: [https://lyricsintelliect.netlify.app](https://lyricsintelliect.netlify.app)
-- **API Documentation**: [http://3.83.224.94/docs/](http://3.83.224.94/docs/)
 
 ## 🛠️ Tech Stack
 
@@ -42,7 +39,6 @@ LyricsIntelliect is a web application that analyzes song lyrics to provide meani
 - **Backend Hosting**: AWS EC2
 - **Frontend Hosting**: Netlify
 - **Containerization**: Docker Compose
-- **CI/CD**: GitHub Actions
 
 ## 🚀 Getting Started
 
@@ -56,8 +52,8 @@ LyricsIntelliect is a web application that analyzes song lyrics to provide meani
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/lyricsintelliect.git
-   cd lyricsintelliect
+   git clone https://github.com/abdullahmujahidali/LyricsIntelliect.git
+   cd LyricsIntelliect
    ```
 
 2. Create a `.env` file in the backend directory based on the `.env.example`:
@@ -262,10 +258,6 @@ yarn build
 3. Commit your changes: `git commit -m 'Add some amazing feature'`
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Open a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License.
 
 ## 🙏 Acknowledgements
 
